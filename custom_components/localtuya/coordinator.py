@@ -105,6 +105,7 @@ class TuyaDevice(TuyaListener, ContextualLogger):
         self._unsub_refresh: CALLBACK_TYPE | None = None
         self._unsub_new_entity: CALLBACK_TYPE | None = None
         self._unsub_offline_watchdog: CALLBACK_TYPE | None = None
+        self._offline_since: float | None = None
         self._offline_forced = False
 
         self._entities = []
@@ -673,24 +674,32 @@ class TuyaDevice(TuyaListener, ContextualLogger):
         next disconnected() returns early. The entities then keep a stale status for as
         long as the device stays unreachable (a bulb read `on` for 15 h after its relay
         cut the power, 2026-09-03). This closes every such path and never touches a
-        connected, sleeping or closing device.
+        connected, sleeping or closing device. The grace runs from the first tick that
+        saw the connection gone, so a quiet-but-healthy device that drops in a network
+        blip is left to the normal path for OFFLINE_GRACE seconds.
         """
-        seconds = time.monotonic() - self._last_update_time
+        now = time.monotonic()
+        if self.connected:
+            self._offline_since = None
+            return
+        if self._offline_since is None:
+            self._offline_since = now
+        seconds = now - self._offline_since
         entities_available = any(
             getattr(entity, "available", False) for entity in self._entities
         )
         if not should_force_offline(
-            connected=bool(self.connected),
+            connected=False,
             is_sleep=self.is_sleep,
             is_closing=self.is_closing,
             is_subdevice=bool(self.is_subdevice),
             entities_available=entities_available,
-            seconds_since_update=seconds,
+            seconds_offline=seconds,
         ):
             return
         if not self._offline_forced:
             _WATCHDOG_LOGGER.warning(
-                "[%s] Unreachable for %d s but entities still held a status; "
+                "[%s] No connection for %d s but entities still held a status; "
                 "forcing them unavailable.",
                 self.friendly_name,
                 seconds,

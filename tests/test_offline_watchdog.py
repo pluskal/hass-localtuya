@@ -13,7 +13,7 @@ def _decide(**overrides):
         is_closing=False,
         is_subdevice=False,
         entities_available=True,
-        seconds_since_update=OFFLINE_GRACE + 1,
+        seconds_offline=OFFLINE_GRACE + 1,
     )
     base.update(overrides)
     return should_force_offline(**base)
@@ -26,16 +26,18 @@ def test_stale_entities_on_unreachable_device_are_forced_offline():
 
 
 def test_within_grace_nothing_happens():
-    assert _decide(seconds_since_update=OFFLINE_GRACE - 1) is False
-    assert _decide(seconds_since_update=0) is False
+    # A blip shorter than the grace is the normal path's business (heartbeats,
+    # _shutdown_entities, reconnect), not the watchdog's.
+    assert _decide(seconds_offline=OFFLINE_GRACE - 1) is False
+    assert _decide(seconds_offline=0) is False
 
 
 def test_exactly_at_grace_fires():
-    assert _decide(seconds_since_update=OFFLINE_GRACE) is True
+    assert _decide(seconds_offline=OFFLINE_GRACE) is True
 
 
 def test_connected_device_is_never_touched():
-    assert _decide(connected=True, seconds_since_update=10**6) is False
+    assert _decide(connected=True, seconds_offline=10**6) is False
 
 
 def test_sleep_device_keeps_last_status():
@@ -56,5 +58,5 @@ def test_already_unavailable_entities_do_not_refire():
 
 
 def test_custom_grace():
-    assert _decide(seconds_since_update=20, grace=10) is True
-    assert _decide(seconds_since_update=5, grace=10) is False
+    assert _decide(seconds_offline=20, grace=10) is True
+    assert _decide(seconds_offline=5, grace=10) is False
