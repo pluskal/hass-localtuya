@@ -2,6 +2,7 @@
 
 from custom_components.localtuya.core.offline_watchdog import (
     OFFLINE_GRACE,
+    entity_holds_status,
     should_force_offline,
 )
 
@@ -60,3 +61,28 @@ def test_already_unavailable_entities_do_not_refire():
 def test_custom_grace():
     assert _decide(seconds_offline=20, grace=10) is True
     assert _decide(seconds_offline=5, grace=10) is False
+
+
+# --- entity_holds_status: the shown state counts too (2026-09-19) ------------
+
+
+def test_entity_with_own_status_holds():
+    assert entity_holds_status(True, "unavailable") is True
+
+
+def test_cleared_entity_still_shown_on_holds():
+    # The 2026-09-19 case: status cleared, HA still shows `on`.
+    assert entity_holds_status(False, "on") is True
+
+
+def test_cleared_entity_shown_unknown_holds():
+    assert entity_holds_status(False, "unknown") is True
+
+
+def test_cleared_entity_shown_unavailable_is_done():
+    assert entity_holds_status(False, "unavailable") is False
+
+
+def test_entity_without_ha_state_is_done():
+    # Not added to HA (or removed): nothing to repair.
+    assert entity_holds_status(False, None) is False

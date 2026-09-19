@@ -45,3 +45,23 @@ def should_force_offline(
     if not entities_available:
         return False
     return seconds_offline >= grace
+
+
+def entity_holds_status(entity_available: bool, ha_state: str | None) -> bool:
+    """Return True when an entity still looks available anywhere it is observed.
+
+    entity_available:  the entity object's own `available` (has a status or the
+                       device is connected)
+    ha_state:          the state Home Assistant currently shows for it, or None
+                       when it has no state (not added / removed)
+
+    The two can disagree: a dispatch of `None` clears the entity's status, but if
+    the state write that should follow is lost or raced, Home Assistant keeps
+    showing the last status (light.201_b5 read `on` for 8 h on 2026-09-19 with
+    no socket to the bulb, while the watchdog saw "nothing available" and stayed
+    quiet). The invariant matters where it is observed, so the shown state
+    counts too.
+    """
+    if entity_available:
+        return True
+    return ha_state is not None and ha_state != "unavailable"
