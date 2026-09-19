@@ -31,6 +31,7 @@ from .core.pytuya import (
 from .core.pytuya.parser import DecodeError
 from .core.offline_watchdog import (
     OFFLINE_WATCHDOG_INTERVAL_SECONDS,
+    entity_holds_status,
     should_force_offline,
 )
 
@@ -686,7 +687,10 @@ class TuyaDevice(TuyaListener, ContextualLogger):
             self._offline_since = now
         seconds = now - self._offline_since
         entities_available = any(
-            getattr(entity, "available", False) for entity in self._entities
+            entity_holds_status(
+                getattr(entity, "available", False), self._ha_state_of(entity)
+            )
+            for entity in self._entities
         )
         if not should_force_offline(
             connected=False,
@@ -707,8 +711,26 @@ class TuyaDevice(TuyaListener, ContextualLogger):
         self._offline_forced = True
         signal = f"localtuya_{self._device_config.id}"
         dispatcher_send(self.hass, signal, None)
+        # Clearing the status is not enough when the write that should follow
+        # was lost or raced: Home Assistant then keeps showing the last status
+        # (light.201_b5 stayed `on` for 8 h on 2026-09-19 with no socket to the
+        # bulb). Push the state where it is observed; a no-op when it already
+        # reads unavailable.
+        for entity in self._entities:
+            if getattr(entity, "hass", None) is not None and getattr(
+                entity, "entity_id", None
+            ):
+                entity.async_write_ha_state()
         if self._task_reconnect is None and self._task_connect is None:
             self._task_reconnect = asyncio.create_task(self._async_reconnect())
+
+    def _ha_state_of(self, entity) -> str | None:
+        """State Home Assistant currently shows for an entity, None if it has none."""
+        entity_id = getattr(entity, "entity_id", None)
+        if not entity_id:
+            return None
+        state = self.hass.states.get(entity_id)
+        return None if state is None else state.state
 
     @callback
     def subdevice_state_updated(self, state: SubdeviceState):
